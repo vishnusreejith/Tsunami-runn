@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Ensures the game scales correctly on mobile devices -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>Tsunami Survival Run</title>
+    <!-- Load Tailwind CSS for styling the UI overlays -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Use a custom font for the game's theme */
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@700&display=swap');
+
+        body {
+            font-family: 'Roboto Condensed', sans-serif;
+            margin: 0;
+            padding: 0;
+            /* Prevent scrolling and selection on mobile */
+            overflow: hidden;
+            background-color: #000;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* The canvas will be our game screen */
+        canvas {
+            display: block;
+            background-color: #f0f8ff; /* AliceBlue, like a bright day */
+        }
+
+        /* This class creates the earthquake shake effect */
+        .shake {
+            animation: shake 0.8s cubic-bezier(.36,.07,.19,.97) both;
+            transform: translate3d(0, 0, 0);
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        /* Base styles for all UI overlay panels */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 20px;
+            box-sizing: border-box; /* Ensure padding doesn't break layout */
+        }
+
+        /* Custom button styling */
+        .game-button {
+            display: inline-block;
+            color: white;
+            padding: 1rem 2.5rem;
+            border-radius: 9999px; /* pill shape */
+            font-size: 1.25rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .game-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Specific styles for the warning message */
+        #warningMessage {
+            background-color: rgba(220, 38, 38, 0.85); /* Red */
+            font-size: 2.5rem;
+            text-shadow: 0 0 10px black;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- The main game canvas where action happens -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Start Screen Overlay -->
+    <div id="startScreen" class="overlay">
+        <h1 class="text-5xl md:text-7xl font-bold mb-4 text-cyan-300">TSUNAMI SURVIVAL RUN</h1>
+        <p class="text-xl md:text-3xl mb-8 max-w-2xl">
+            An earthquake just struck! A tsunami is coming.
+            <br>
+            <strong>Tap the screen to FLY</strong> over debris.
+            <br>
+            Grab <strong class="text-lime-400">BOOSTS (B)</strong> to run faster!
+        </p>
+        
+        <!-- NEW: Level Selection -->
+        <p class="text-2xl md:text-3xl mb-4 max-w-2xl font-bold">Select Difficulty:</p>
+        <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 mb-8">
+            <button id="startEasy" class="game-button bg-green-500 hover:bg-green-600 shadow-lg shadow-green-500/30 hover:shadow-green-500/50" data-level="easy">Easy</button>
+            <button id="startNormal" class="game-button bg-cyan-500 hover:bg-cyan-600 shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50" data-level="normal">Normal</button>
+            <button id="startHard" class="game-button bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30 hover:shadow-red-500/50" data-level="hard">Hard</button>
+        </div>
+        
+        <!-- Information Module Fact -->
+        <p id="startFact" class="text-lg md:text-xl mt-4 max-w-2xl text-yellow-300 italic"></p>
+    </div>
+
+    <!-- Game Over Screen Overlay (hidden by default) -->
+    <div id="gameOverScreen" class="overlay" style="display: none;">
+        <h1 id="gameOverTitle" class="text-6xl md:text-8xl font-bold mb-4"></h1>
+        <p id="gameOverMessage" class="text-2xl md:text-4xl mb-8"></p>
+        <!-- Button Container -->
+        <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+            <button id="restartButton" class="game-button bg-cyan-500 hover:bg-cyan-600 shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50">Try Again</button>
+            <button id="homeButton" class="game-button bg-gray-500 hover:bg-gray-600 shadow-lg shadow-gray-500/30 hover:shadow-gray-500/50">Home</button>
+        </div>
+        <!-- Information Module Fact -->
+        <p id="gameOverFact" class="text-lg md:text-xl mt-4 max-w-2xl text-yellow-300 italic"></p>
+    </div>
+
+    <!-- Earthquake Warning Message (hidden by default) -->
+    <div id="warningMessage" class="overlay" style="display: none;">
+        <h1 class="font-bold">EARTHQUAKE!</h1>
+        <p class="text-2xl mt-4">TSUNAMI WARNING!</p>
+        <p class="text-2xl">RUN TO HIGH GROUND!</p>
+    </div>
+
+
+    <script>
+        // Get all necessary DOM elements
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const warningMessage = document.getElementById('warningMessage');
+        // NEW: Level selection buttons
+        const startEasy = document.getElementById('startEasy');
+        const startNormal = document.getElementById('startNormal');
+        const startHard = document.getElementById('startHard');
+        const restartButton = document.getElementById('restartButton');
+        const homeButton = document.getElementById('homeButton'); // NEW
+        const gameOverTitle = document.getElementById('gameOverTitle');
+        const gameOverMessage = document.getElementById('gameOverMessage');
+        const startFact = document.getElementById('startFact');
+        const gameOverFact = document.getElementById('gameOverFact');
+
+        // --- Information Module: Facts ---
+        const disasterFacts = [
+            "If you are in a coastal area and feel an earthquake, head for high ground immediately. Don't wait for a warning.",
+            "A tsunami is a series of waves. The first wave may not be the largest.",
+            "A tsunami can travel across an entire ocean. A 1960 tsunami from Chile caused damage as far away as Japan.",
+            "During an earthquake, 'Drop, Cover, and Hold On' is your best protection.",
+            "Most tsunamis are caused by large, undersea earthquakes.",
+            "Tsunami waves can travel as fast as a jet plane in the deep ocean (over 500 mph or 800 kph).",
+            "As a tsunami approaches shallow water, it slows down but its height increases dramatically.",
+            "Never go to the coast to watch a tsunami. If you can see the wave, you are too close to escape."
+        ];
+
+        function displayRandomFact() {
+            const fact = disasterFacts[Math.floor(Math.random() * disasterFacts.length)];
+            const tip = `Survival Tip: ${fact}`;
+            if(startFact) startFact.textContent = tip;
+            if(gameOverFact) gameOverFact.textContent = tip;
+        }
+
+        // --- Game Constants ---
+        const GRAVITY = 0.4; // Reduced gravity for flying
+        const FLY_FORCE = -9;
+        const PLAYER_SPEED = 5;
+        const GROUND_HEIGHT = 50;
+        const HIGH_GROUND_WIDTH = 200;
+        const BOOST_DURATION = 600; // 10 seconds at 60fps
+        const BOOST_MULTIPLIER = 1.8;
+
+        // NEW: Level Definitions
+        const levelSettings = {
+            'easy': {
+                goal: 3000,
+                waveSpeed: 0.15, // Was 0.1
+                tsunamiDelay: 7000, // 7 sec head start
+                obstacleRate: 0.007, // Fewer obstacles
+                powerUpRate: 0.0065 // More power-ups
+            },
+            'normal': {
+                goal: 5000,
+                waveSpeed: 0.25, // Was 0.2
+                tsunamiDelay: 5000, // 5 sec head start
+                obstacleRate: 0.010, // Original rate
+                powerUpRate: 0.0055 // Original rate
+            },
+            'hard': {
+                goal: 7000,
+                waveSpeed: 0.45, // Was 0.4
+                tsunamiDelay: 3000, // 3 sec head start
+                obstacleRate: 0.013, // More obstacles
+                powerUpRate: 0.0045 // Fewer power-ups
+            }
+        };
+
+        // --- Game State Variables ---
+        let player, wave, obstacles, powerUps, groundY;
+        let gameSpeed, score;
+        let isBoosting = false;
+        let boostTimer = 0;
+        let gameState = 'START'; // START, RUNNING, WARN, GAMEOVER
+        let gameLoopId;
+        let currentLevelSettings; // NEW: To hold settings for the current game
+
+        // --- Game Classes ---
+
+        // Player object
+        class Player {
+            constructor(x, y, radius) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.velocityY = 0;
+                this.isGrounded = false; 
+            }
+
+            draw(color) {
+                ctx.fillStyle = color || '#ff4500'; // Orangey-red default
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            update() {
+                this.velocityY += GRAVITY;
+                this.y += this.velocityY;
+
+                // Check if player hits the ground
+                if (this.y + this.radius > groundY) {
+                    this.y = groundY - this.radius;
+                    this.velocityY = 0;
+                    this.isGrounded = true;
+                } else {
+                    this.isGrounded = false;
+                }
+
+                // Prevent flying off the top of the screen
+                if (this.y - this.radius < 0) {
+                    this.y = this.radius;
+                    this.velocityY = 0;
+                }
+            }
+            
+            flyUp() {
+                this.velocityY = FLY_FORCE;
+            }
+        }
+
+        // Obstacle object
+        class Obstacle {
+            constructor(x, y, width, height, type) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.type = type; 
+            }
+
+            draw() {
+                if (this.type === 'spiky') {
+                    ctx.fillStyle = '#8B4513'; // SaddleBrown
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y + this.height); // Bottom-left
+                    ctx.lineTo(this.x + this.width / 2, this.y); // Top-middle
+                    ctx.lineTo(this.x + this.width, this.y + this.height); // Bottom-right
+                    ctx.closePath();
+                    ctx.fill();
+                } else if (this.type === 'wide') {
+                    ctx.fillStyle = '#A0522D'; // Sienna
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                } else {
+                    // Default 'debris'
+                    ctx.fillStyle = '#8B4513'; // SaddleBrown
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                }
+            }
+
+            update() {
+                this.x -= gameSpeed;
+            }
+        }
+
+        // Power-Up object (for Boost)
+        class PowerUp {
+            constructor(x, y, radius) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+            }
+
+            draw() {
+                ctx.fillStyle = '#32CD32'; // LimeGreen
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                // Add a "B" for Boost
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 15px "Roboto Condensed"';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('B', this.x, this.y);
+            }
+
+            update() {
+                this.x -= gameSpeed;
+            }
+        }
+
+
+        // Tsunami Wave object
+        class Wave {
+            constructor(speed) { // NEW: Takes speed
+                this.x = -canvas.width; // Start off-screen
+                this.width = canvas.width;
+                this.height = canvas.height * 0.6; // 60% of screen height
+                this.speed = speed || 0.2; // NEW: Use provided speed or default
+                this.isChasing = false;
+            }
+
+            draw() {
+                ctx.fillStyle = 'rgba(0, 119, 190, 0.8)'; // Deep blue
+                ctx.fillRect(this.x, canvas.height - this.height, this.width, this.height);
+            }
+
+            update() {
+                if (this.isChasing) {
+                    this.x += this.speed;
+                }
+            }
+        }
+
+        // --- Game Functions ---
+
+        // Set canvas size to fill the window
+        function setCanvasSize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            groundY = canvas.height - GROUND_HEIGHT;
+        }
+
+        // Initialize or reset game variables
+        function initGame() {
+            setCanvasSize();
+            
+            player = new Player(canvas.width * 0.2, groundY - 30, 20);
+            // NEW: Use current settings if they exist, otherwise default speed
+            const waveSpeed = currentLevelSettings ? currentLevelSettings.waveSpeed : 0.2;
+            wave = new Wave(waveSpeed);
+            obstacles = [];
+            powerUps = [];
+            score = 0;
+            isBoosting = false;
+            boostTimer = 0;
+            gameSpeed = PLAYER_SPEED;
+            gameState = 'START';
+
+            // Show a random fact on the start screen
+            displayRandomFact();
+        }
+
+        // Start the game sequence
+        function startGame(level) { // NEW: Takes level
+            currentLevelSettings = levelSettings[level]; // NEW: Set current level
+            currentLevelSettings.levelName = level; // NEW: Store for restart
+
+            initGame(); // Reset everything *using the new settings*
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+
+            // Phase 1: Earthquake Warning
+            gameState = 'WARN';
+            warningMessage.style.display = 'flex';
+            document.body.classList.add('shake');
+
+            setTimeout(() => {
+                // Phase 2: The Run
+                warningMessage.style.display = 'none';
+                document.body.classList.remove('shake');
+                gameState = 'RUNNING';
+                
+                // Start the main game loop
+                if (gameLoopId) cancelAnimationFrame(gameLoopId);
+                gameLoop();
+                
+                // Phase 3: Tsunami Chase
+                setTimeout(() => {
+                    if (gameState === 'RUNNING') {
+                        wave.isChasing = true;
+                    }
+                }, currentLevelSettings.tsunamiDelay); // NEW: Use level-specific delay
+
+            }, 3000); // Warning lasts for 3 seconds
+        }
+
+        // Main game loop
+        function gameLoop() {
+            if (gameState !== 'RUNNING') return;
+
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // --- Update Game Speed based on Boost ---
+            if (isBoosting) {
+                gameSpeed = PLAYER_SPEED * BOOST_MULTIPLIER;
+                boostTimer--;
+                if (boostTimer <= 0) {
+                    isBoosting = false;
+                    gameSpeed = PLAYER_SPEED;
+                }
+            } else {
+                gameSpeed = PLAYER_SPEED;
+            }
+
+            // Draw Ground
+            ctx.fillStyle = '#228B22'; // ForestGreen
+            ctx.fillRect(0, groundY, canvas.width, GROUND_HEIGHT);
+
+            // Draw High Ground Goal (far away)
+            const goalX = currentLevelSettings.goal - score; // NEW: Use level goal
+            const goalHeight = 200;
+            ctx.fillStyle = '#8B4513'; // Brown hill
+            ctx.fillRect(goalX, groundY - goalHeight, HIGH_GROUND_WIDTH, goalHeight + GROUND_HEIGHT);
+            // "SAFE" sign
+            ctx.fillStyle = 'white';
+            ctx.font = '30px "Roboto Condensed"';
+            ctx.textAlign = 'center';
+            ctx.fillText('HIGH GROUND', goalX + HIGH_GROUND_WIDTH / 2, groundY - goalHeight + 50);
+
+            // --- Spawn Obstacles ---
+            // NEW: Use level-specific rate and goal
+            if (Math.random() < currentLevelSettings.obstacleRate && score < (currentLevelSettings.goal - canvas.width)) {
+                // Variety logic
+                const randType = Math.random();
+                let h, w, type;
+
+                if (randType < 0.33) {
+                    type = 'spiky';
+                    h = Math.random() * 40 + 25; // 25 to 65 px high
+                    w = Math.random() * 20 + h;  // Base width relative to height
+                } else if (randType < 0.66) {
+                    type = 'wide';
+                    h = Math.random() * 30 + 15; // 15 to 45 px high (shorter)
+                    w = Math.random() * 30 + 40; // 40 to 70 px wide
+                } else {
+                    type = 'debris';
+                    h = Math.random() * 50 + 20; // 20 to 70 px high
+                    w = Math.random() * 30 + 20; // 20 to 50 px wide
+                }
+                obstacles.push(new Obstacle(canvas.width, groundY - h, w, h, type));
+            }
+
+            // Update and draw obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].update();
+                obstacles[i].draw();
+
+                // Collision detection (Player vs Obstacle)
+                if (
+                    player.x < obstacles[i].x + obstacles[i].width &&
+                    player.x + player.radius > obstacles[i].x &&
+                    player.y + player.radius > obstacles[i].y
+                ) {
+                    triggerGameOver(false, 'You hit the debris!');
+                    return;
+                }
+
+                // Remove obstacles that are off-screen
+                if (obstacles[i].x + obstacles[i].width < 0) {
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // --- Spawn Power-Ups ---
+            // NEW: Use level-specific rate and goal
+            if (Math.random() < currentLevelSettings.powerUpRate && !isBoosting && score > 500 && score < (currentLevelSettings.goal - canvas.width)) { 
+                powerUps.push(new PowerUp(canvas.width, groundY - 80, 15)); // Spawn it mid-air
+            }
+
+            // Update and draw power-ups
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                powerUps[i].update();
+                powerUps[i].draw();
+
+                // Collision detection (Player vs PowerUp)
+                const dist = Math.hypot(player.x - powerUps[i].x, player.y - powerUps[i].y);
+                if (dist - player.radius - powerUps[i].radius < 1) {
+                    isBoosting = true;
+                    boostTimer = BOOST_DURATION;
+                    powerUps.splice(i, 1);
+                }
+                // Remove if off-screen
+                else if (powerUps[i].x + powerUps[i].radius < 0) {
+                    powerUps.splice(i, 1);
+                }
+            }
+            
+            // --- Update and draw player ---
+            player.update();
+            player.draw(isBoosting ? '#32CD32' : '#ff4500'); // LimeGreen when boosting
+
+            // Update and draw wave
+            wave.update();
+            wave.draw();
+
+            // Update score (distance travelled)
+            score += gameSpeed;
+
+            // --- Check Win/Lose Conditions ---
+
+            // 1. Caught by wave
+            const waveTopY = canvas.height - wave.height;
+            const playerBottomY = player.y + player.radius;
+            
+            if (
+                wave.x + wave.width > player.x - player.radius && // Wave is horizontally at the player
+                playerBottomY > waveTopY                       // AND Player is vertically inside the wave
+            ) {
+                triggerGameOver(false, 'The tsunami caught you!');
+                return;
+            }
+
+            // 2. Reached high ground (Win)
+            if (score >= currentLevelSettings.goal) { // NEW: Use level goal
+                triggerGameOver(true, `You ran ${Math.floor(currentLevelSettings.goal / 100)}m and reached safety!`); // NEW: Use level goal
+                return;
+            }
+            
+            // --- Draw UI ---
+            ctx.fillStyle = 'black';
+            ctx.font = '24px "Roboto Condensed"';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Distance: ${Math.floor(score / 100)}m`, 20, 40);
+            ctx.textAlign = 'right';
+            ctx.fillText(`Goal: ${Math.floor(currentLevelSettings.goal / 100)}m`, canvas.width - 20, 40); // NEW: Use level goal
+
+            // Draw Boost Timer
+            if (isBoosting) {
+                ctx.fillStyle = '#32CD32';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 24px "Roboto Condensed"';
+                ctx.fillText(`BOOST! ${Math.ceil(boostTimer / 60)}s`, canvas.width / 2, 40);
+            }
+
+            // Request next frame
+            gameLoopId = requestAnimationFrame(gameLoop);
+        }
+
+        // End the game
+        function triggerGameOver(isWin, message) {
+            if (gameState === 'GAMEOVER') return; // Prevent multiple calls
+            
+            cancelAnimationFrame(gameLoopId);
+            gameState = 'GAMEOVER';
+            
+            if (isWin) {
+                gameOverTitle.textContent = 'YOU SURVIVED!';
+                gameOverTitle.style.color = '#34D399'; // Emerald-400
+            } else {
+                gameOverTitle.textContent = 'GAME OVER';
+                gameOverTitle.style.color = '#EF4444'; // Red-500
+            }
+            gameOverMessage.textContent = message;
+            
+            // Show a random fact on the game over screen
+            displayRandomFact();
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // --- Event Listeners ---
+
+        // Resize the canvas when window size changes
+        window.addEventListener('resize', () => {
+            // Only resize if not in the middle of a game
+            if (gameState !== 'RUNNING') {
+                initGame();
+            } else {
+                setCanvasSize();
+            }
+        });
+
+        // NEW: Start buttons
+        startEasy.addEventListener('click', () => startGame('easy'));
+        startNormal.addEventListener('click', () => startGame('normal'));
+        startHard.addEventListener('click', () => startGame('hard'));
+
+        // Restart button
+        restartButton.addEventListener('click', () => {
+            // NEW: Restart at the same level
+            if (currentLevelSettings) {
+                startGame(currentLevelSettings.levelName);
+            } else {
+                startGame('normal'); // Fallback just in case
+            }
+        });
+
+        // NEW: Home button listener
+        homeButton.addEventListener('click', () => {
+            gameOverScreen.style.display = 'none';
+            startScreen.style.display = 'flex';
+            initGame(); // Reset the game state for a new selection
+        });
+
+        // Handle player fly (touch and mouse)
+        function handleFly(e) {
+            if (gameState === 'RUNNING') {
+                e.preventDefault(); // Prevent screen zoom on double-tap
+                player.flyUp();
+            }
+        }
+        
+        canvas.addEventListener('touchstart', handleFly, { passive: false });
+        canvas.addEventListener('mousedown', handleFly);
+
+        // Initialize the game on load
+        // Set a default level for the first load
+        currentLevelSettings = levelSettings['normal'];
+        initGame();
+
+    </script>
+</body>
+</html>
+
+
+
+
+
+
